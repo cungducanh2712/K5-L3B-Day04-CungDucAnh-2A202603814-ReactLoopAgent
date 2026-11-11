@@ -3,6 +3,7 @@ import json
 import os
 import urllib.error
 import urllib.request
+import uuid
 
 CONFIG = {
     'openai': ('OPENAI_API_KEY', 'https://api.openai.com/v1/chat/completions'),
@@ -38,8 +39,15 @@ class Provider:
         self.name, self.model = name, model
         key_name, self.url = CONFIG[name]
         self.key = os.getenv(key_name)
+        if name == 'openai':
+            custom_url = os.getenv('OPENAI_BASE_URL') or os.getenv('API_ENDPOINT')
+            if custom_url:
+                self.url = custom_url if custom_url.endswith('/chat/completions') else custom_url.rstrip('/') + '/chat/completions'
+            if not self.key:
+                self.key = os.getenv('OPENCODE_GO_API_KEY') or os.getenv('API_KEY')
         if not self.key:
             raise ValueError(f'Thiếu {key_name}; xem README.md.')
+        self.session_id = str(uuid.uuid4())
 
     def complete(self, messages, schemas):
         if self.name == 'anthropic':
@@ -47,7 +55,11 @@ class Provider:
         payload = {'model': self.model, 'messages': messages}
         if schemas:
             payload['tools'] = schemas
-        data = post_json(self.url, {'Authorization': f'Bearer {self.key}'}, payload)
+        headers = {'Authorization': f'Bearer {self.key}'}
+        if 'opencode.ai' in self.url:
+            headers['User-Agent'] = 'StatusAgentLab/1.0'
+            headers['x-opencode-session'] = self.session_id
+        data = post_json(self.url, headers, payload)
         choice = data['choices'][0]
         message = choice['message']
         calls = [{'id': c['id'], 'name': c['function']['name'], 'arguments': c['function']['arguments']} for c in message.get('tool_calls', [])]
